@@ -5,6 +5,7 @@
 """
 
 import json
+import random
 from functools import cache
 from pathlib import Path
 
@@ -27,12 +28,51 @@ def _names(entry: dict) -> list[str]:
         _normalize(a) for a in entry["aliases"]
     ]
 
-
+'''
 def search_glossary(query: str) -> str:
     """講座の用語集から用語を検索し、定義と、どの回で扱うかを返す。
 
     AIエンジニアリングの用語や、この講座（AIE2026）に固有の言葉について
     答える前に使うこと。query には調べたい用語を1つだけ入れる（例: "LoRA"）。
+    """
+    q = _normalize(query)
+    if not q:
+        return "検索語が空です。調べたい用語を1つ指定してください。"
+    glossary = load_glossary()
+
+    exact = [e for e in glossary if q in _names(e)]
+    # 「r」のような短い別名が何にでも当たらないよう、名前側が短いものは除く
+    partial = [
+        e for e in glossary
+        if e not in exact and any(q in n or (len(n) >= 3 and n in q) for n in _names(e))
+    ]
+    in_definition = [
+        e for e in glossary
+        if e not in exact and e not in partial and q in _normalize(e["definition"])
+    ]
+    hits = (exact + partial + in_definition)[:MAX_RESULTS]
+
+    if not hits:
+        return f"用語集に「{query}」は見つかりませんでした。"
+    return json.dumps(
+        [
+            {
+                "term": e["term"],
+                "lecture": e["lecture"],
+                "definition": e["definition"],
+                "related": e["related"],
+            }
+            for e in hits
+        ],
+        ensure_ascii=False,
+    )
+'''
+
+def search_glossary(query: str) -> str:
+    """講座の用語集から用語を検索し、定義と、どの回で扱うかを返す。
+
+    AIエンジニアリングの用語や、この講座（AIE2026）に固有の言葉について
+    複数の用語を比較する質問では、query に比較対象の用語をまとめて入れ、1回で検索すること（例: "LoRA QLoRA"）。
     """
     q = _normalize(query)
     if not q:
@@ -77,3 +117,19 @@ def get_lecture_summary(lecture: int) -> str:
         available = sorted(p.stem for p in (DATA_DIR / "lectures").glob("*.md"))
         return f"第{lecture}回の要点はまだありません。用意されている回: {', '.join(available)}"
     return path.read_text(encoding="utf-8")
+
+
+def make_quiz(lecture: int) -> str:
+    """指定した回の確認問題を1問作る。講義内容から問題を出すよう頼まれたときに使う。"""
+    terms = [entry for entry in load_glossary() if entry["lecture"] == lecture]
+    if not terms:
+        return f"第{lecture}回の用語が用語集にありません。"
+
+    entry = random.choice(terms)
+    return json.dumps(
+        {
+            "question": f"「{entry['term']}」の意味は？",
+            "answer": entry["definition"],
+        },
+        ensure_ascii=False,
+    )
